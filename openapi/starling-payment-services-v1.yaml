@@ -1,0 +1,4177 @@
+openapi: 3.0.0
+info:
+  description: >
+    ### Overview
+
+
+    The Starling Payment Services (SPS) APIs enable you to send payments to UK accounts in real time, by connecting you into the Faster Payments Scheme (FPS) and BACS. Connections to other payment systems, such as SEPA for European payments, are expected to become available in the future.
+
+
+    Our API is RESTful, using predictable and resource-orientated URLs with standard HTTP methods and status codes. All responses (expected and errors) will be returned in JSON format. We also offer webhooks to notify you of events on accounts you have access to.
+
+
+    ### <a name="availability"></a>Availability
+
+    Our Payment Services APIs are only open to pre-authorised users, you will need to go through an approval process with our Payment Services team to check if the service is relevant for you and to gain access. You can find more info and register your interest on our [dedicated website](https://www.starlingbank.com/paymentservices/)
+
+
+    ### <a name="getting-started"></a>Getting Started
+
+    To get started with the payment service APIs:
+
+    * Get in touch for commercials and necessary due diligence.
+
+    * When approved, Starling whitelists an email address so you can create a login to our Payment Services portal.
+
+    * Upload the public key of two key pairs, one is used to sign API requests and the other is a master key used to sign future key uploads for rotation.
+
+    * Start using the API, signing each request with the appropriate headers and your private key.
+
+
+    Clients will be allocated their own sort code for creating FPS-addressable accounts through the API. Conceptually, an 'account' is a pot of money held at Starling from which payments can be sent and received.
+
+
+    By itself, an account does not have an account number or sort code; the sort code / account combination is assigned by creating an 'address' (one or more) for the account. This gives the flexibility to support use cases from a company with a single account number & sort code per balance through to a company with one balance and thousands of unique addresses for each of their end customers. Balance checks are authorised at an account level, regardless of the address used to send the payment.
+
+
+    We make extensive use of UUIDs throughout the API, more information on them can be found here: https://en.wikipedia.org/wiki/Universally_unique_identifier
+
+
+    ## <a name="security"></a>Security
+
+    The payment APIs have been built with security and non-repudiation at the core.
+
+
+    * Initially two public / private key pairs must be created and the public keys added to the Payment Services portal.
+      * One payments key which is used to sign API requests.
+      * One rotation key which is used to sign new key uploads.
+    * A second API key can be subsequently added by signing the new public key with the private rotation key. Both keys will then be in service for API calls to support seamless rotation.
+
+    * There is no maximum age for keys but we would recommend rotating keys on significant staff departure or in the event of suspected compromise of the payments private key.
+
+    * All requests are signed (see below) using the payments private key, which must be kept securely. If Starling receives a properly signed request, using your private key, Starling will attempt to execute that request. 
+
+    * The caller generates the UUID for the operation (e.g. a payment or account creation request) and the resource path, which includes the UUID, is part of the message being signed; the server generates this message independently, then it performs the `checkSig` operation with the public key and its own message. This prevents replying the signed message with a different UUID. 
+
+    * The server will process any request (with a UUID) a maximum of once regardless of how many times it is received.
+
+
+    Key Requirements; 
+
+
+    * Keys must be either RSA or ECDSA keys.
+
+    * RSA keys should have a length of either 2048 or 4096.
+
+    * ECDSA keys should have a length of 256.
+
+    * RSA keys should not be SSH keys. All valid RSA key bodies will start `MII`.
+
+
+    ### <a name="signing-requests"></a>Signing Requests
+
+
+    All requests (read and write) must be appropriately signed with an `Authorization` header of the form:
+
+     ```
+     Signature keyid="...",algorithm="...",headers="...",signature="..."
+     ```
+
+     
+    where:
+
+
+    * **`keyid`** is the UUID of the uploaded public key - this is supplied in the developer dashboard after you have uploaded a public key. 
+
+    * **`algorithm`** is name of the algorithm used, supported types: `rsa-sha256` `ecdsa-sha256` `rsa-sha512` `ecdsa-sha512`
+
+    * **`headers`** is a whitespace delimited list of the other HTTP headers present which have been used to create the signature, these headers must include:
+        * **`(request-target)`**: Path of the requested resource (excludes host name)
+        * **`date`**: Date and time at which the request was made in the form `2007-12-03T10:15:30Z`. Requests will only be valid within 5 seconds of this time. 
+            * **Please note this is not the standard HTTP format for the Date header**
+        * **`digest`**: Validated as a SHA-512 hash of the JSON payload in the request body or `X` if no message body is present    
+    * **`signature`** is the signature generated with the private key
+
+
+    An example of the message to be signed would be:
+
+
+    ```
+
+    (request-target): put /api/v1/9209d6fe-8ee2-40f7-b629-f0758c0d5c5b
+
+    Date: 2017-12-05T11:19:38.011+00:00
+
+    Digest: iKo2gTcNvytrsVG7aYX43a9WWphhyyhzNScrodqguFDhKBhMpBrtw+xNUHGFyYuCLKL0x2ZxrYMJBIVOkPMflw==
+
+    ```
+
+
+    An example of a complete authorization header would be 
+
+
+    ```
+
+    Signature keyid="e2bde1ab-a1c4-4db6-9118-d4d3ec4b55d5",algorithm="rsa-sha256",headers="(request-target) Date Digest",signature="cn0o0Ok37SuETsaefCpNh4WPA80zviWbSyFqSNU0/1QQFP45ODu/8n3Tnm9De5nsH2N/aTz+dvfZvdOGCvNjSusTAOm3iku0DRcdiuBSurI7Xb2xX8rYPCFOdde8b/CZy8NONix5AvPgNSKhHJXTd1lASSGOOEuuOlVXHMQFTnJEXa2nl6lyizrP03g00ZW+34z4Ac1ODbQKDitosPqCrIy09uVjsAPd9NanMKBbzF2K6Lo5KLh6RFxTEt4zHn2JEu/T6PsMfUce0IFIc/2U75OXOHfueY3Q/v7y3uskEvFH82quprCZaaQaOd/gsyYkF7q2NaOEdN5/SwoG9stXDCqqHUfwaQarBhtVV0ON5ZWPJCeVH6SaJ5UdPKnGFMTgdsJLkiCCdloW+MBazmFmYDUUOPJTIFgoyK7nnotJ8VXbtaK1TwDqs6TBHbCu/Ed8SWFYqFvTBXuyK5HEzlZRET514W9TM4AVU6xnA23aRWMFDnSyStO3WyxNTJkjO/vRkHaHPTDmCBCUXDiUUN1/FB4sADCUUIKYd38omvQ3G7HzcBcNjNAVE0aWFmJ2eAOS0vchzRhKSm5XI+/bqjgET1InhBS2yGF1I9uBHodeCrCUMVBXItOcXBuJ7g8jOWAbn0bUepO4Nz9RW+yxg/JD2CATPRCAIrgxU6RI/GzyTMc="
+
+    ```
+
+    ### <a name="creating-a-rsa-key-pair"></a>Example: Creating a RSA Key Pair (Java)
+
+
+    **First generate the key pair:**
+
+
+    ```
+
+    KeyPairGenerator keyPairGenerator = KeyPairGenerator.getInstance("RSA");
+
+    keyPairGenerator.initialize(2048, "Random number");
+
+    KeyPair signingKey = keyPairGenerator.generateKeyPair();
+
+    ```
+
+
+    **Base64 encode the public key content for upload to the Payment Services portal:**
+
+
+    ```
+
+    String encodedPublicKey = new String(Base64.getEncoder().encode(signingKey.getPublic().getEncoded()));
+
+    ```
+
+
+    Upload this content, keeping the private key of the key pair very securely.
+
+
+    ### <a name="signing-a-request"></a>Example: Signing a Request (Java)
+
+
+    In this example we are going to sign the request to create a new account for a company at the path: 
+
+    ```
+
+    put /api/v1/90d14796-c59f-4944-9146-7fc84deb253c/account/46168325-8d23-4efe-ba48-b3a74f85f23b
+
+    ```
+
+
+    **For operations with a payload, first calculate the SHA-512 digest of the payload:**
+
+
+    ```
+
+    MessageDigest messageDigest = MessageDigest.getInstance("SHA-512");
+
+    byte[] payload = ByteStreams.toByteArray("payload string");
+
+    String payloadDigest = Base64.getEncoder().encodeToString(messageDigest.digest(payload));
+
+    ```
+
+
+    **In the example the digest is calculated as:** 
+
+    ```
+
+    vRbwCwvyRmlkHVxa4A45M3n31DZGqtcd1Lso9JcueCd5IoZVKyKeWtl5yluy0eAgypiN2GXOyRoXwtv55RU/Tw==
+
+    ```
+
+
+    **Then determine the text to sign, which must at least include the headers '(request-target), 'date' and 'digest'.**
+
+
+    ```
+
+    String textToSign = "(request-target): put /api/v1/90d14796-c59f-4944-9146-7fc84deb253c/account/46168325-8d23-4efe-ba48-b3a74f85f23b\nDate: 2017-06-30T12:25:07.61+01:00\nDigest: vRbwCwvyRmlkHVxa4A45M3n31DZGqtcd1Lso9JcueCd5IoZVKyKeWtl5yluy0eAgypiN2GXOyRoXwtv55RU/Tw==";
+
+    ```
+
+
+    **Calculate the signature for the request:**
+
+
+    ```
+
+    Signature instance = Signature.getInstance("SHA512withRSA"); // Could also use "SHA512withECDSA"
+
+    instance.initSign(signingKey.getPrivateKey());
+
+    instance.update(signingString.getBytes());
+
+    byte[] encodedSignedString = Base64.getEncoder().encode(instance.sign());
+
+    String signature = new String(encodedSignedString);
+
+    ```
+
+    **In the example the signature is calculated as:**
+     ```
+     MEYCIQCYkotOTNN+gM13v48Ay0powow7SpaL6LqVCL8ifNdKSAIhAL5viAzL7lXjM+plrONFyN1Y1EX6V3VpIBmoOmXdHSZm
+     ```
+
+    Format the signature into an `Authorization` header specifying the UUID of the key used to generate the signature, the signature algorithm used above, the headers in the order they were signed (space separated) and the signature itself.
+
+
+    ```
+
+    Signature keyid="4ae81b77-cca2-480b-b1b2-f353d3253874",algorithm="rsa-sha512",headers="(request-target) Date Digest",signature="MEYCIQCYkotOTNN+gM13v48Ay0powow7SpaL6LqVCL8ifNdKSAIhAL5viAzL7lXjM+plrONFyN1Y1EX6V3VpIBmoOmXdHSZm"
+
+    ```
+
+
+    Finally, make the HTTP request as normal with the following headers:
+
+
+    | Header | Value |
+
+    | :--- | :-------------- |
+
+    | Authorization | Signature keyid="4ae81b77-cca2-480b-b1b2-f353d3253874",algorithm="rsa-sha512",headers="(request-target) Date Digest",signature="MEYCIQCYkotOTNN+gM13v48Ay0powow7SpaL6LqVCL8ifNdKSAIhAL5viAzL7lXjM+plrONFyN1Y1EX6V3VpIBmoOmXdHSZm" |
+
+    | Digest | vRbwCwvyRmlkHVxa4A45M3n31DZGqtcd1Lso9JcueCd5IoZVKyKeWtl5yluy0eAgypiN2GXOyRoXwtv55RU/Tw== |
+
+    | Date | 2017-06-30T12:25:07.61+01:00 |
+
+
+    **Note:**
+
+    * Requests are only valid within **5 seconds** of the specified time
+
+    * The digest must be a `SHA-512 digest` of the full JSON payload. For `GET` requests, the header must be present but can have no value (or a value such as `X` as long as it matches the value of the digest header that was signed).
+
+    * The separate header values on the request must match the header values used to generate the signature.
+
+    * You may also sign any further headers by including them in the list of headers signed and the signature contents.
+
+
+
+    ### <a name="uploading-a-public-ke"></a>Uploading a Public Key
+
+
+    The public keys of the payments key pair and the rotation key pair need to be uploaded to the Starling Payment Services developer portal which can be found at https://developer.starlingbank.com/payments. 
+
+
+    Under `Settings` in the portal you can upload the keys (just copy and paste them in). The key should either be:
+
+    * A complete public key, across new lines and with headers and footers, such as `-----BEGIN RSA PUBLIC KEY-----` *or*
+
+    * A single line for the whole body of the signature *without* headers and footers. 
+
+
+    After the signature is uploaded, your `Key Uid` will be available at `Dashboard`.
+
+
+    ## <a name="using-the-api"></a>Using the API
+
+
+    ### <a name="request-and-response"></a>Request & Response
+
+
+    The API makes use of the following HTTP methods:
+
+
+    | Method | Usage |
+
+    | ----- | ----- |
+
+    | `PUT` (create / update) | Makes the object at the specified path consistent with the payload structure, a new instance will be created where this object does not currently exist. This approach is used in preference to `POST` as it allows requests to be immutable, the caller can repeatedly `PUT` the same payload and only create a single account / send a single payment. The API will validate subsequent requests to ensure the resource exactly matches the previously created structure. |
+
+    | `GET` (read) | Returns details of the requested object |
+
+
+    All responses, including errors, return JSON and the `PUT` method require JSON for the request body.
+
+
+
+
+    ### <a name="errors"></a>Errors
+
+
+    The API uses common HTTP status codes in the response header to indicate success or failure.
+
+
+    | HTTP Status | Meaning |
+
+    | ----- | ----- |
+
+    | `200 OK` | Request succeeded and processed OK |
+
+    | `202 Accepted` | Received was received OK and will process shortly. Typically you will receive a UUID in response that can be used to check progress |
+
+    | `400 Bad Request` | Something was wrong with the request made, check the request to address the error included in the response |
+
+    | `401 Unauthorized` | You are not authorised to access the requested data |
+
+    | `403 Forbidden` | Your authentication failed, usually due to the public key being expired or an attempt to access a resource beyond the scope of the key |
+
+    | `404 Not Found` | The requested resource does not exist |
+
+    | `500 Internal Server Error` | Something went wrong on our side - get in touch using Slack or email so we can look into it! |
+
+
+    ### <a name="webhooks"></a>Webhooks
+
+
+    Starling can dispatch webhooks to your servers to give real-time notifications of inbound payments and changes to, or information received about, outbound payment requests. The webhook address Starling should POST to can be configured through the Payment Services portal, with separate addresses supported for production and the sandbox environment. Documentation on the payloads that will be included, and the paths to which they will be posted, are in the API specification below.
+
+
+    Webhooks will be dispatched for the following events:
+
+    * FPS Scheme notifications - typically a payment request being accepted or rejected by the scheme. A single payment may receive multiple scheme notifications, for example when initially rejected, retried then accepted - see common sequences below.
+
+    * FPS Redirection notifications - used when a payment has been automatically redirected to a different account number / sort code, typically due to use of the current account switching service (CASS). The new account details provided should be used on future payment instructions.
+
+    * FPS Inbound payment - Newly received inbound payment which will increase the funds available in the account.
+
+    * FPS Inbound payment reversal - Reversal of a previously received inbound payment - the previously credited funds will be deducted from the balance.
+
+
+    It is important that you can validate that messages hitting your chosen endpoint have both originated from the Starling servers and have not been tampered with in transit. To help with this, a server-generated shared secret is used to sign all hooks. The signature is placed in the `X-Hook-Signature` header of the `POST` request and consists of a `Base64` encoded `SHA-512` digest of the `secret + JSON` payload. You can view the shared secret in the Payment Services portal. Also, Starling require the use of HTTPS connections for production webhooks.
+
+
+    Should your webhook endpoint not return a 2XX response within two seconds we will retry, with backoff, over a period of ~2 hours:
+
+
+    after the first attempted delivery we schedule another delivery for 2 minutes after delivery failure
+
+
+    after the second attempted delivery we schedule another delivery for 4 minutes after delivery failure
+
+
+    after the third attempted delivery we schedule another delivery for 8 minutes after delivery failure
+
+
+    after the fourth attempted delivery we schedule another delivery for 16 minutes after delivery failure
+
+
+    after the fifth attempted delivery we schedule another delivery for 32 minutes after delivery failure
+
+
+    after the sixth attempted delivery we schedule another delivery for 64 minutes after delivery failure
+
+
+    if the seventh attempt fails we give up
+
+
+    ## <a name="common-sequences"></a>Common Sequences
+
+
+    While Starling will handle the complex interactions and technical integration with the Faster Payments Scheme (FPS), there are a number of sequences of events which may occur that you need to allow for when integrating the API. These may not be familiar from a consumer experience of using Faster Payments, where typically all payments are final.
+     
+    ### <a name="inbound-payments"></a>Inbound Payments
+
+
+    The vast majority of inbound payments follow a simple exchange where the money arrives and the client application is notified via a webhook:
+     
+    ![Diagram showing inbound payment acceptance][inbound_accepted]
+
+
+    In rare circumstances, the inbound payment will be reversed a few seconds later and the funds removed again. Typically this is because one of the actors in the chain did not respond to the payment process fast enough so the scheme triggered an automated technical reversal of the payment. In effect, the inbound payment did not take place and the account has no additional funds:
+
+
+    ![Diagram showing inbound payment acceptance followed by reversal][inbound_accepted_reversed]
+
+
+    ### <a name="outbound-payments"></a>Outbound Payments
+
+
+    Assuming sufficient funds at Starling, most outbound payments will be sent to the scheme and accepted by the receiving bank:
+
+
+    ![Diagram showing outbound immediate, accepted][outbound_immediate_accepted]
+
+
+    In some circumstances, the destination bank won’t be in a position to accept an immediate payment, for example due to scheduled maintenance. When this happens, the initial payment will be rejected and Starling will automatically re-submit the payment instruction as a future dated payment (FDP) which the scheme accepts and holds until the destination bank is available again.
+
+
+    ![Diagram showing outbound immediate rejected, future dated accepted][outbound_immediate_rejected_fdp_accepted]
+
+
+    It is also possible, in both cases above, for the outbound payment to be accepted but for the scheme or receiving bank to later decide that it should not have been. When this happens, a new inbound payment will be sent back to Starling to return the money with the inbound payment flagged as a return of a previous outbound payment.
+
+
+    ![Diagram showing outbound accepted then returned][outbound_immediate_accepted_then_returned]
+
+
+    When a payment is sent to an account number / sort code and the customer has moved their account, there may be an automatic redirection in place within Faster Payments. If your payment is automatically re-routed, an additional webhook will be sent with the details of the redirection. Developers should update their account details for the customer and instruct payments to the new account in future, redirections are only temporary and will come to an end.
+
+
+    ![Diagram showing outbound accepted and_redirected][outbound_immediate_accepted_and_redirected]
+
+
+
+    [inbound_accepted]: https://starlingbank.github.io/docs/sequence_diagrams/fps/inbound_accepted.svg "Inbound Payment: Accepted"
+
+    [inbound_accepted_reversed]: https://starlingbank.github.io/docs/sequence_diagrams/fps/inbound_accepted_reversed.svg "Inbound Payment: Accepted then Reversed"
+
+    [outbound_immediate_accepted]: https://starlingbank.github.io/docs/sequence_diagrams/fps/outbound_immediate_accepted.svg "Outbound Payment: Immediate, Accepted"
+
+    [outbound_immediate_rejected_fdp_accepted]: https://starlingbank.github.io/docs/sequence_diagrams/fps/outbound_immediate_rejected_fdp_accepted.svg "Outbound Payment: Immediate rejected, future dated accepted"
+
+    [outbound_immediate_accepted_then_returned]: https://starlingbank.github.io/docs/sequence_diagrams/fps/outbound_immediate_accepted_then_returned.svg "Outbound Payment: Accepted, then later returned"
+
+    [outbound_immediate_accepted_and_redirected]: https://starlingbank.github.io/docs/sequence_diagrams/fps/outbound_immediate_accepted_and_redirected.svg "Outbound Payment: Accepted, then redirected"
+
+
+    ### <a name="bacs-direct-debits"></a>BACS: Direct Debits
+
+
+    It is possible to set up Direct Debit mandates against an address. The events that occur when setting up a Direct Debit and making payments against it are as follows:
+
+
+    * Once a new Direct Debit has been set up, the `bacs-mandate-created` webhook will be dispatched with the details of the mandate.
+
+    * On the working day before a payment is due against a mandate, the `direct-debit-due` webhook is dispatched.
+
+    * Once this has been dispatched, before 2pm on the day of payment, it is possible for the payment business to instruct Starling to prevent payment of the Direct Debit, by using the BACS Payments endpoint. This would be necessary should the address not have sufficient funds to make the payment.
+
+    * At 2pm on the day of payment, the Direct Debit payment will be attempted. The following situations could occur:
+      - Should the payment succeed, the `direct-debit-paid` webhook will be dispatched.
+      - If the payment has either been instructed not to be paid, or the account holding the address has insufficient funds, the `direct-debit-rejected` webhook will be dispatched, containing the reason for the rejection.
+
+    ## <a name="sandbox"></a>Sandbox
+
+
+    A full sandbox environment is provided running a complete copy of all Starling systems, connected to simulated versions of the Faster Payments Scheme and BACS. This allows developers to build and test applications without having to move money in the real world. The FPS simulator supports a number of triggers which allow the developer to control the scheme response to their instruction. This means an application can be tested against all the scenarios documented above without you needing to re-create them in the real world.
+
+
+    The sandbox is available at: https://payment-api-sandbox.starlingbank.com/api/v1/{paymentBusinessUuid}
+
+
+    ### <a name="inbound-domestic-payments"></a>Inbound Domestic Payments
+
+
+    Inbound payments can be simulated from within the Payment Services portal. Enter the amount, reference and destination account number / sort code, which should be an address attached to an account of your business. The simulator will automatically fake an originating UK account.
+
+
+    ### <a name="inbound-payments-originating-overseas"></a>Inbound Payments Originating Overseas
+
+
+    Inbound payments originating overseas can be simulated from within the Payment Services portal. Enter details as per a domestic payment, plus information of the originating account overseas which can either be:
+
+    * BIC & IBAN
+
+    * BIC & Account number
+     
+    ### <a name="inbound-payment-reversal"></a>Inbound Payment Reversal
+
+
+    A reversal of a previously receiving inbound payment can be simulated within the Payment Service portal. To do so, you will need the FPID (Faster Payments Identifier) of the inbound payment to reverse and the original payment amount. Both of these are included in the webhook for a received inbound payment.
+     
+    ### <a name="outbound-domestic-payments"></a>Outbound Domestic Payments
+
+
+    Outbound payments are initiated through the API. The simulator will accept payments to any FPS addressable sort code. If the sort code is operated by Starling Bank, the destination account must also exist for the payment to be accepted (for example transferring between two addresses for your accounts).
+
+
+    To help with testing payments to accounts outside of Starling, the following accounts are **valid**:
+
+
+    |Sort Code | Account Number|
+
+    |----------|---------------|
+
+    |203002|00004588|
+
+    |203002|00027944|
+
+    |204514|58110244|
+
+    |204514|60282377|
+
+    |166051|99993193|
+
+    |166051|87889196|
+
+
+    The following accounts are **invalid**:
+
+
+    |Sort Code | Account Number|
+
+    |----------|---------------|
+
+    |203002|00004900|
+
+    |203002|00028000|
+
+    |204514|58110250|
+
+    |204514|60282380|
+
+    |166051|99993200|
+
+    |166051|87889200|
+
+
+    Outbound payments can also be rejected with a specific error code by using the reference `rejectCode:nnnn` where `nnnn` is the 4 digit scheme error code. If no numeric code is specified, the payment will be rejected with reason `1114 - Beneficiary Sort Code/Account Number unknown`.
+
+
+    The main error codes you may receive are:
+
+
+    | Code | Description | Retried as FDP (see below) |
+
+    | ----- | ----- | ----- |
+
+    | 1100 | Other than that identified below | - |
+
+    | 1114 | Beneficiary Sort Code/Account Number unknown | - |
+
+    | 1160 | Beneficiary Account closed | - |
+
+    | 1161 | Beneficiary Account stopped | - |
+
+    | 1162 | Beneficiary Account Name does not match Beneficiary Account Number | - |
+
+    | 1163 | Account cannot be identified without data in Reference Information field | - |
+
+    | 1164 | Reference Information is incorrect | - |
+
+    | 1167 | Beneficiary deceased | - |
+
+    | 1168 | Fraudulent payment suspected | - |
+
+    | 9910 | Direct Receiver’s system not logged on | Yes |
+
+    | 9911 | Direct Receiver’s system timed out | Yes |
+
+    | 9912 | Direct Receiver’s system not available | Yes |
+
+    | 9913 | Duplicate FPID | Yes |
+
+
+    The main reason codes for successful outbound payments are:
+
+
+    | Code | Description |
+
+    | ----- | ----- |
+
+    | 0000 | Accept |
+
+    | 0080 | Qualified accept - unspecified day |
+
+    | 0081 | Qualified accept - same day |
+
+    | 0082 | Qualified accept - next calendar day |
+
+    | 0083 | Qualified accept - next working day |
+
+    | 0084 | Qualified accept - after the next working day |
+
+    | 0085 | Qualified accept - within two hours |
+
+
+    ### <a name="outbound-immediate-payment-rejected"></a>Outbound Immediate Payment Rejected and Retried as Future Dated Payment (FDP)
+
+
+    An outbound payment can be configured to be initially rejected as a SIP then converted to the FDP (which is accepted) if the reference is set to `sipResendAsFdp`.
+
+
+    ### <a name="outbound-payment-re-direction"></a>Outbound Payment Redirection
+
+
+    Outbound payments receive a success acknowledgment which informs you of redirection if the reference on the payment is set to `R:\d{6}:\d{8}`, eg `R:123456:12345678`, where the 6 digit string is the new sort code, and the 8 digit string is the new account number.
+
+
+    ### <a name="outbound-payment-returned-by-new-inbound-payment"></a>Outbound Payment Returned by New Inbound Payment
+
+
+    Outbound payments can be returned by a separate inbound payment by simulating the inbound return in the Payment Services portal. To do so, you will need the UUID of the account that sent the outbound payment and the FPID (Faster Payments Identifier) of the outbound payment to return. The simulator will then send a correctly configured return for the previous outbound payment.
+
+
+    ### <a name="bacs-direct-credits-and-debits"></a>BACS: Direct Debits and Direct Credits
+
+
+    To simulate Direct Debits, the BACS Direct Debit simulator is available. In the Mandate tab, enter the address details and any service user number/reference, for which a Direct Debit originator will be generated. Use the same reference when simulating a Direct Debit payment for this mandate in the Payment tab. To simulate instructing a payment not to be made, set the simulated payment to 'Pay Tomorrow', and use the payment UUID in the webhook dispatched to instruct the payment not to be made. To simulate the payment being processed without waiting until 2pm the following working day, use the 'Due Payments' tab.
+
+
+    Direct Credits can be simulated through the BACS Direct Credit simulator, using any reference.
+
+
+    ## <a name="functionality-and-limits"></a>Functionality & Limits
+
+
+    ### <a name="payment-timing"></a>Payment Timing 
+
+
+    Starling operate a real-time payment system. Outbound payments will be deducted from the available funds when the payment is requested and inbound funds will be credited to the destination account on receipt of the instruction from the Faster Payments Scheme.
+
+
+    ### <a name="payment-limits"></a>Payment Limits
+
+
+    The maximum amount permitted per payment will be agreed with the Payment Services client; Starling systems support payments up to the scheme limits.
+
+
+    In addition, all clients will be allocated a net sender cap which is the total net position of payments that a client can reach within a settlement cycle (details to be confirmed). Payments requests that exceed this cap will be declined. The current status of the net sender cap within the cycle, and cycle details, are available through the API. Please get in touch with the SPS team if you need additional headroom above your allocated cap.
+
+
+    ## <a name="help-and-support"></a>Help & Support
+
+
+    If you are an existing Payment Services User and are having any issues, please get in touch with us directly by email or in the private, dedicated Slack channel.
+
+
+    If you have any questions around Starling Bank rather that our Payment Services, you can ask via chat on our [main website](https://www.starlingbank.com/contact/) or by emailing our [contact centre](mailto:help@starlingbank.com).
+  version: 1.0.0
+  title: Payment Services Developer API
+tags:
+  - name: Settlement Cycle
+  - name: BACS Payments
+  - name: Payment Account
+  - name: Send Payments
+  - name: BACS Mandates
+  - name: Payment Service Business
+  - name: Previous Payments
+  - name: Payment Account Address
+  - name: BACS Web Hook
+  - name: FPS Web Hook
+  - name: Payment Account Web Hook
+paths:
+  "/api/v1/{paymentBusinessUid}/settlement/cycle/{settlementCycleUid}":
+    get:
+      tags:
+        - Settlement Cycle
+      summary: Gets the details of a settlement cycle by unique identifier
+      description: ""
+      operationId: getSettlementCycle
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: settlementCycleUid
+          in: path
+          description: The identifier the settlement cycle
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Settlement cycle for the provided identifier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementCycle"
+        "404":
+          description: Settlement cycle not found
+        "500":
+          description: Server Error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/mandate/{mandateUid}/payment/{bacsPaymentUid}":
+    put:
+      tags:
+        - BACS Payments
+      summary: Update the status of whether to pay an upcoming direct debit payment
+      description: ""
+      operationId: updateDirectDebitPaymentExecutionInstruction
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: mandateUid
+          in: path
+          description: The identifier of the individual mandate
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: bacsPaymentUid
+          in: path
+          description: The identifier of the individual direct debit payment
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateDirectDebitPaymentExecutionInstructionRequest"
+        description: Payload describing the new instruction of a direct debit payment's
+          execution
+      responses:
+        "200":
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDirectDebitPaymentExecutionInstructionResponse"
+        "400":
+          description: Validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDirectDebitPaymentExecutionInstructionResponse"
+        "500":
+          description: Server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}":
+    get:
+      tags:
+        - Payment Account
+      summary: Gets the details of the payment account
+      description: ""
+      operationId: getPaymentAccount
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retrieved payment account details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentAccount"
+        "404":
+          description: not found
+        "500":
+          description: server error
+    put:
+      tags:
+        - Payment Account
+      summary: Creates a payment account which holds a balance for an organisation but
+        has no address (account number / sort code) by default. Theseare
+        assigned by adding one or more addresses to the account.
+      description: Returns the account object containing details of the balance holding
+        payment account.
+      operationId: createAccount
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payments account
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentAccountRequest"
+        description: Payload describing the account to be created
+        required: true
+      responses:
+        "200":
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatePaymentAccountResponse"
+        "400":
+          description: validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatePaymentAccountResponse"
+        "404":
+          description: Account not found
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/payment/{paymentUid}/return":
+    put:
+      tags:
+        - Send Payments
+      summary: Returns a previously received inbound payment to the sender with a given
+        reason. If the payment received originated overseas, the payment will be
+        returned to the UK based instructing agent
+      description: ""
+      operationId: returnPayment
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentUid
+          in: path
+          description: The identifier of the new outbound payment returning the inbound
+            payment specified in the payload
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentReturnRequest"
+        description: Payload describing the payment to be returned and reason for the return
+        required: true
+      responses:
+        "200":
+          description: Payment return successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentReturnResponse"
+        "400":
+          description: validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentReturnResponse"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/mandate/{mandateUid}/payment":
+    get:
+      tags:
+        - BACS Mandates
+      summary: Lists all the direct debit payments associated with the specified
+        mandate, returns in pages of up to 100 with the most recent payments
+        first
+      description: ""
+      operationId: listPaymentsForMandate
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: mandateUid
+          in: path
+          description: The identifier of the individual mandate
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          description: Page number (pages of 100 payments) to return for the specified
+            mandate
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 1
+      responses:
+        "200":
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DirectDebitPayment"
+        "404":
+          description: Not found
+        "500":
+          description: Server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/mandate/{mandateUid}/cancel":
+    put:
+      tags:
+        - BACS Mandates
+      summary: Cancels the specified mandate so that direct debit payments will no
+        longer be accepted for it
+      description: ""
+      operationId: cancelMandate
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: mandateUid
+          in: path
+          description: The identifier of the individual mandate
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelMandateRequest"
+        description: Request containing the reason for cancelling the mandate
+        required: true
+      responses:
+        "200":
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelMandateResponse"
+        "400":
+          description: Validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancelMandateResponse"
+        "500":
+          description: Server error
+  "/api/v1/{paymentBusinessUid}/account":
+    get:
+      tags:
+        - Payment Account
+      summary: List payment accounts for a payment business
+      description: ""
+      operationId: getPaymentAccounts
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentAccount"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/mandate/{mandateUid}":
+    get:
+      tags:
+        - BACS Mandates
+      summary: Gets a specific direct debit mandate associated with the specified
+        address
+      description: ""
+      operationId: getMandate
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: mandateUid
+          in: path
+          description: The identifier of the individual mandate
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectDebitMandate"
+        "500":
+          description: Server error
+  "/api/v1/{paymentBusinessUid}":
+    get:
+      tags:
+        - Payment Service Business
+      summary: Gets details of the payment business
+      description: This resource takes the `paymentBusinessUid` as a path parameter and
+        returns the party's details
+      operationId: getBusinessInformation
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retrieved payment business information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessInformation"
+        "404":
+          description: Account not found
+        "500":
+          description: Server Error
+  "/api/v1/{paymentBusinessUid}/settlement/current":
+    get:
+      tags:
+        - Settlement Cycle
+      summary: Gets a summary of the current active settlement cycle
+      description: ""
+      operationId: getActiveSettlementCycle
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retrieved active settlement cycle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementCycle"
+        "500":
+          description: Server Error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/payment/{paymentUid}":
+    get:
+      tags:
+        - Previous Payments
+      summary: Gets the details of an individual payment transaction
+      description: ""
+      operationId: getPaymentDetails
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentUid
+          in: path
+          description: The identifier of an individual payment
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retrieved transaction details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentDetails"
+        "404":
+          description: not found
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/payment/{paymentUid}/domestic-originating-overseas":
+    put:
+      tags:
+        - Send Payments
+      summary: Instructs a new domestic (within the UK) payment for an account, which
+        originated from an account overseas, often in a foreign currency
+      description: ""
+      operationId: instructPaymentOriginatingOverseas
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentUid
+          in: path
+          description: Identifier of the payment to be sent, assigned by the sending client
+            for idempotency reasons
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentOriginatingOverseasInstructionRequest"
+        description: Payload describing the payment to be instructed
+        required: true
+      responses:
+        "200":
+          description: Payment instruction successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOriginatingOverseasInstructionResponse"
+        "400":
+          description: validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentOriginatingOverseasInstructionResponse"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/mandate":
+    get:
+      tags:
+        - BACS Mandates
+      summary: Lists all the direct debit mandates associated with the specified address
+      description: ""
+      operationId: listMandatesForAddress
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DirectDebitMandate"
+        "404":
+          description: Not found
+        "500":
+          description: Server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}":
+    get:
+      tags:
+        - Payment Account Address
+      summary: Gets the details of a payment account address
+      description: ""
+      operationId: getPaymentAccountAddress
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retrieved payment account address details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentAccountAddress"
+        "404":
+          description: not found
+        "500":
+          description: server error
+    put:
+      tags:
+        - Payment Account Address
+      summary: Creates an address for the account on the UK faster payments network by
+        assigning an account number and sort code. The operation can also be
+        used to change the name on an existing address.
+      description: Returns the account object containing details of the payment account
+        address.
+      operationId: createAccountAddress
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payments account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentAccountAddressRequest"
+        description: Payload describing the account address to be created
+        required: true
+      responses:
+        "200":
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatePaymentAccountAddressResponse"
+        "400":
+          description: validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreatePaymentAccountAddressResponse"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address":
+    get:
+      tags:
+        - Payment Account Address
+      summary: List of addresses for a payment account
+      description: ""
+      operationId: getPaymentAccountAddresses
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payments account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          description: Page number (pages of 100 addresses)
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentAccountAddress"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/payment/{paymentUid}/domestic":
+    put:
+      tags:
+        - Send Payments
+      summary: Instructs a new domestic (within the UK) payment for an account, via an
+        address assigned to the account
+      description: ""
+      operationId: instructDomesticPayment
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: paymentUid
+          in: path
+          description: Identifier of the payment to be sent, assigned by the sending client
+            for idempotency reasons
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DomesticPaymentInstructionRequest"
+        description: Payload describing the payment to be instructed
+        required: true
+      responses:
+        "200":
+          description: Payment instruction successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DomesticPaymentInstructionResponse"
+        "400":
+          description: validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DomesticPaymentInstructionResponse"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/settlement/last":
+    get:
+      tags:
+        - Settlement Cycle
+      summary: Gets a summary of the last completed settlement cycle
+      description: ""
+      operationId: getLastSettlementCycle
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Retrieved active settlement cycle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementCycle"
+        "500":
+          description: Server Error
+  "/api/v1/{paymentBusinessUid}/settlement/payments/{settlementCycleUid}":
+    get:
+      tags:
+        - Settlement Cycle
+      summary: Gets information about all the payments made within a settlement cycle
+      description: ""
+      operationId: getSettlementCyclePayments
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: settlementCycleUid
+          in: path
+          description: The identifier the settlement cycle
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: page
+          in: query
+          description: Page number (pages of 100 payments) to return for the specified cycle
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 1
+        - name: ordering
+          in: query
+          description: The ordering to be used
+          required: false
+          schema:
+            type: string
+            enum:
+              - CREATED_AT_DESCENDING
+              - CREATED_AT_ASCENDING
+            default: CREATED_AT_DESCENDING
+      responses:
+        "200":
+          description: Retrieved payments within the settlement cycle, in pages of 100
+            payments from most recent to oldest
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentDetails"
+        "500":
+          description: Server Error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/status":
+    put:
+      tags:
+        - Payment Account Address
+      summary: Changes the status of the account on the scheme, for instance marking
+        the address as closed. Once the status has been changed to a terminal
+        status, the address cannot be reactivated
+      description: ""
+      operationId: changePaymentAccountAddressStatus
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeStatusPaymentAccountAddressRequest"
+        description: Payload describing the new account address status
+        required: true
+      responses:
+        "200":
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeStatusPaymentAccountAddressResponse"
+        "400":
+          description: validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeStatusPaymentAccountAddressResponse"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/faster-payments-status":
+    put:
+      tags:
+        - Payment Account Address
+      summary: Changes the faster payments status of the account, for instance marking
+        the address as incoming or outgoing payments disabled.
+      description: ""
+      operationId: changePaymentAccountAddressFasterPaymentsStatus
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeFasterPaymentsStatusPaymentAccountAddressRequest"
+        description: Payload describing the new account address faster payments status
+        required: true
+      responses:
+        "200":
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeStatusPaymentAccountAddressResponse"
+        "400":
+          description: validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeStatusPaymentAccountAddressResponse"
+        "500":
+          description: server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/bacs-payments-status":
+    put:
+      tags:
+        - Payment Account Address
+      summary: Sets the account level configuration for accepting BACS payments to and
+        from this address
+      description: ""
+      operationId: updateBacsPaymentStatus
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payment account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangeBacsStatusPaymentAccountAddressRequest"
+        description: Payload describing the new account address bacs status
+        required: true
+      responses:
+        "200":
+          description: Successful operation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeBacsStatusPaymentAccountAddressResponse"
+        "400":
+          description: Validation error(s)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChangeBacsStatusPaymentAccountAddressResponse"
+        "404":
+          description: Not found
+        "500":
+          description: Server error
+  "/api/v1/{paymentBusinessUid}/account/{accountUid}/address/{addressUid}/payment":
+    get:
+      tags:
+        - Previous Payments
+      summary: Gets a list of sent and received payments for an account address,
+        returns in pages of up to 100 (within the specified time period) with
+        the most recent payment first
+      description: ""
+      operationId: getPaymentsForAccountAddress
+      parameters:
+        - name: paymentBusinessUid
+          in: path
+          description: The identifier of the payment business
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: accountUid
+          in: path
+          description: The identifier of the individual payments account
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: addressUid
+          in: path
+          description: The identifier of the individual account address
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: direction
+          in: query
+          description: Filter payments to a single direction
+          required: false
+          schema:
+            type: string
+            enum:
+              - INBOUND
+              - OUTBOUND
+              - ALL
+            default: ALL
+        - name: from
+          in: query
+          description: Time which returned payments will have occurred on or after
+          required: false
+          schema:
+            type: string
+            format: date-time
+            default: No limit
+        - name: to
+          in: query
+          description: Time which returned payments will have occurred on or before
+          required: false
+          schema:
+            type: string
+            format: date-time
+            default: Now
+        - name: page
+          in: query
+          description: Page number (pages of 100 payments) to return for the specified date
+            range
+          required: false
+          schema:
+            type: integer
+            format: int32
+            default: 1
+      responses:
+        "200":
+          description: Retrieved transaction list for payments account
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PaymentDetails"
+        "500":
+          description: server error
+  /your-registered-web-hook-address/direct-debit-due:
+    post:
+      tags:
+        - BACS Web Hook
+      summary: Notification that a direct debit payment is due to be paid on the next
+        working day.
+      description: ""
+      operationId: directDebitDue
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectDebitPaymentDueNotification"
+        description: Notification of a direct debit payment that is due to be made on the
+          next working day
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/fps-scheme:
+    post:
+      tags:
+        - FPS Web Hook
+      summary: Notification received from the faster payments scheme, typically this is
+        a change in the status of the payment such as an acknowledgement or
+        rejection.
+      description: ""
+      operationId: schemeNotification
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FpsSchemeNotification"
+        description: Notification received from the FPS scheme
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/bacs-mandate-created:
+    post:
+      tags:
+        - BACS Web Hook
+      summary: Notification that a direct debit mandate has been created.
+      description: ""
+      operationId: mandateCreated
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MandateCreatedNotification"
+        description: Details of a direct debit mandate which has been received for an
+          address
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/bacs-mandate-cancelled:
+    post:
+      tags:
+        - BACS Web Hook
+      summary: Notification received that a direct debit mandate has been cancelled.
+      description: ""
+      operationId: mandateCancelled
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MandateCancelledNotification"
+        description: Notification that a direct debit mandate has been cancelled
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/direct-credit-received:
+    post:
+      tags:
+        - BACS Web Hook
+      summary: Notification that a direct credit payment has been received.
+      description: ""
+      operationId: directCreditReceived
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectCreditPaymentReceivedNotification"
+        description: Notification that a direct credit has been received for an account
+          address
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/direct-debit-paid:
+    post:
+      tags:
+        - BACS Web Hook
+      summary: Notification that a direct debit payment has been paid.
+      description: ""
+      operationId: directDebitPaid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectDebitPaymentPaidNotification"
+        description: Notification of a direct debit payment that has been made
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/direct-debit-rejected:
+    post:
+      tags:
+        - BACS Web Hook
+      summary: Notification received from Starling rejected a direct debit payment
+        request due to lack of funds.
+      description: ""
+      operationId: directDebitCancelled
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectDebitPaymentRejectedNotification"
+        description: Notification that a direct debit payment has been rejected
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/overseas-payment-sanction-failed:
+    post:
+      tags:
+        - FPS Web Hook
+      summary: Notification that a payment originating overseas has been rejected due
+        to it failing sanction checks.
+      description: ""
+      operationId: paymentOriginatingOverseasSanctionFailed
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentOriginatingOverseasSanctionFailedNotification"
+        description: Notification that a payment originating overseas has failed sanction
+          checks
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/fps-inbound:
+    post:
+      tags:
+        - FPS Web Hook
+      summary: Notification of a new inbound payment received to an address for an
+        account managed by the payment business.
+      description: ""
+      operationId: inboundPayment
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FpsInboundNotification"
+        description: New inbound payment received for an address
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/overseas-payment-return:
+    post:
+      tags:
+        - FPS Web Hook
+      summary: Notification of a new inbound return of a payment originating overseas
+        for an account managed by the payment business.
+      description: ""
+      operationId: inboundReturnOfPaymentOriginatingOverseas
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentOriginatingOverseasInboundReturnNotification"
+        description: New inbound return of a payment originating overseas
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/fps-reversal:
+    post:
+      tags:
+        - FPS Web Hook
+      summary: Notification of a reversal by the scheme of a previously received
+        inbound payment.
+      description: ""
+      operationId: schemeReversal
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FpsReversalNotification"
+        description: Reversal information from the scheme
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/fps-redirection:
+    post:
+      tags:
+        - FPS Web Hook
+      summary: Notification of the redirection of an outbound payment instruction.
+      description: ""
+      operationId: schemeRedirection
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FpsRedirectionNotification"
+        description: Redirection information from the scheme
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+  /your-registered-web-hook-address/account-transaction:
+    post:
+      tags:
+        - Payment Account Web Hook
+      summary: Notification for a credit or deduction transaction applied directly to
+        an account, rather than through an address on a payment scheme.
+      description: ""
+      operationId: accountTransaction
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountTransactionNotification"
+        description: Payload with details of the transaction applied to the account
+        required: true
+      responses:
+        "200":
+          description: successful operation (web hook dispatch will not be retried)
+        "201":
+          description: successful operation (web hook dispatch will not be retried)
+        "202":
+          description: successful operation (web hook dispatch will not be retried)
+        "204":
+          description: successful operation (web hook dispatch will not be retried)
+        "500":
+          description: This, and all other HTTP codes, will be treated as a failure of hook
+            receipt and Starling will resend with exponential back-off
+servers:
+  - url: //localhost
+components:
+  schemas:
+    CurrencyAndAmount:
+      type: object
+      required:
+        - currency
+        - minorUnits
+      properties:
+        currency:
+          type: string
+          example: GBP
+          description: ISO-4217 3 character currency code
+          readOnly: true
+        minorUnits:
+          type: integer
+          format: int64
+          example: 11223344
+          description: Amount in the minor units of the given currency; eg pence in GBP,
+            cents in EUR
+          readOnly: true
+          minimum: 0
+    SettlementCycle:
+      type: object
+      properties:
+        settlementCycleUid:
+          type: string
+          format: uuid
+          example: d73ae6a9-adff-476a-82fa-dcf1266a9b75
+          description: Unique identifier of the settlement cycle
+          readOnly: true
+        startTime:
+          type: string
+          format: date-time
+          example: 2017-06-10T07:00:00.000Z
+          description: Start date and time of the cycle
+          readOnly: true
+        endTime:
+          type: string
+          format: date-time
+          example: 2017-06-10T12:59:59.999Z
+          description: Start date and time of the cycle
+          readOnly: true
+        netPayment:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        netDirection:
+          type: string
+          example: OUTBOUND
+          description: Net direction of movements during this period
+          readOnly: true
+          enum:
+            - INBOUND
+            - OUTBOUND
+        inboundCount:
+          type: integer
+          format: int64
+          example: 52
+          description: Number of inbound payments received during the cycle
+          readOnly: true
+        outboundCount:
+          type: integer
+          format: int64
+          example: 1354
+          description: Number of outbound payments sent during the cycle
+          readOnly: true
+      description: Settlement cycle over which payments made can be reconciled
+    ErrorDetail:
+      type: object
+      properties:
+        message:
+          type: string
+          example: Something about the validation error
+          description: The error message
+          readOnly: true
+    UpdateDirectDebitPaymentExecutionInstructionResponse:
+      type: object
+      properties:
+        bacsPaymentUid:
+          type: string
+          format: uuid
+          example: d8770f9d-4ee9-4cc1-86e1-83c26bcfcc4f
+          description: Unique identifier of the Bacs payment
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the method completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+      description: Response to the request to update the payment execution instruction of a
+        direct debit payment
+    UpdateDirectDebitPaymentExecutionInstructionRequest:
+      type: object
+      required:
+        - paymentInstruction
+      properties:
+        paymentInstruction:
+          type: string
+          example: INSUFFICIENT_FUNDS
+          description: Whether direct debit payment should be paid
+          readOnly: true
+          enum:
+            - SHOULD_PAY
+            - INSUFFICIENT_FUNDS
+      description: Request to change whether a direct debit payment should be paid
+    CreatePaymentAccountResponse:
+      type: object
+      properties:
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 4f25e862-a5d8-46c5-8fe0-f20ba920adf6
+          description: Unique identifier of the payment account
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the method completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+    CreatePaymentAccountRequest:
+      type: object
+      required:
+        - accountHolder
+        - description
+      properties:
+        description:
+          type: string
+          example: For good things
+          description: Description of the account, for internal reference
+          readOnly: true
+          minLength: 0
+          maxLength: 100
+        accountHolder:
+          type: string
+          example: AGENCY
+          description: Type of the account holder, currently only AGENCY is supported
+          readOnly: true
+          enum:
+            - PAYMENT_BUSINESS
+            - AGENCY
+    PaymentReturnResponse:
+      type: object
+      properties:
+        paymentUid:
+          type: string
+          format: uuid
+          example: d8770f9d-4ee9-4cc1-86e1-83c26bcfcc4f
+          description: Unique identifier of the instructed payment
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the method completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+      description: Response to the request for a payment return
+    PaymentReturnRequest:
+      type: object
+      required:
+        - reason
+        - reference
+      properties:
+        paymentUidToReturn:
+          type: string
+          format: uuid
+          example: d8770f9d-4ee9-4cc1-86e1-83c26bcfcc4f
+          description: Unique identifier of the payment to return
+          readOnly: true
+        reference:
+          type: string
+          example: paymentReference
+          description: The reference to be sent on the payment
+          readOnly: true
+          minLength: 1
+          maxLength: 18
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,18}"
+        reason:
+          type: string
+          example: ACCOUNT_TRANSFERRED
+          description: Reason the payment is being returned
+          readOnly: true
+          enum:
+            - ACCOUNT_UNKNOWN
+            - ACCOUNT_CLOSED
+            - ACCOUNT_STOPPED
+            - ACCOUNT_HOLDER_DECEASED
+            - REFERENCE_REQUIRED_NOT_SUPPLIED
+            - ACCOUNT_NAME_MISSMATCH
+            - RETURN_REQUESTED_BY_SENDER
+            - RETURN_REQUESTED_BY_BENEFICIARY
+            - TERMS_AND_CONDITIONS_OF_ACCOUNT_DO_NOT_PERMIT_CREDITING_OF_THESE_FUNDS
+            - SENDING_INSTITUTION_ACTION_REQUIRED
+            - ACCOUNT_TRANSFERRED
+            - REASON_NOT_SPECIFIED
+            - OTHER
+      description: Request for the return of a previously received inbound payment
+    DirectDebitPayment:
+      type: object
+      properties:
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company that owns this mandate
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account which will make any payments
+            associated with this mandate
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address the mandate was set up for
+          readOnly: true
+        mandateUid:
+          type: string
+          format: uuid
+          description: Unique identifier of the mandate
+          readOnly: true
+        bacsPaymentUid:
+          type: string
+          format: uuid
+          description: Unique identifier of the payment
+          readOnly: true
+        amount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        reference:
+          type: string
+          description: The originator defined reference for the payment
+          readOnly: true
+        paymentInstruction:
+          type: string
+          example: INSUFFICIENT_FUNDS
+          description: Whether direct debit payment should be (or have been) paid
+          readOnly: true
+          enum:
+            - SHOULD_PAY
+            - INSUFFICIENT_FUNDS
+        paymentDueAt:
+          type: string
+          format: date-time
+          description: Date and time at which payment is (or was) due to be made
+          readOnly: true
+        receivedAt:
+          type: string
+          format: date-time
+          description: Date and time at which payment was debited from the account, if
+            accepted
+          readOnly: true
+        cancelledAt:
+          type: string
+          format: date-time
+          description: Date and time at which payment was cancelled, if rejected
+          readOnly: true
+        rejectionReason:
+          type: string
+          description: Reason for rejection of payment, if rejected;
+            ACCOUNT_INSUFFICIENT_FUNDS means the account owning the address had
+            insufficient funds to make the payment;
+            INSTRUCTED_INSUFFICIENT_FUNDS means that payment was instructed to
+            not be paid due to insufficient customer funds
+          readOnly: true
+          enum:
+            - ACCOUNT_INSUFFICIENT_FUNDS
+            - INSTRUCTED_INSUFFICIENT_FUNDS
+        paymentStatus:
+          type: string
+          description: Current status of the direct debit payment; DUE means the payment
+            has not been processed yet; PROCESSED_SUCCESS means the payment has
+            been made; PROCESSED_FAILURE means the payment was rejected due to
+            lack of funds
+          readOnly: true
+          enum:
+            - DUE
+            - PROCESSED_SUCCESS
+            - PROCESSED_FAILURE
+      description: Details of a payment made for a direct debit mandate
+    CancelMandateResponse:
+      type: object
+      properties:
+        mandateUid:
+          type: string
+          format: uuid
+          example: d8770f9d-4ee9-4cc1-86e1-83c26bcfcc4f
+          description: Unique identifier of mandate
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the method completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+      description: Response to the request to cancel a mandate
+    CancelMandateRequest:
+      type: object
+      required:
+        - mandateStatusCancellationReason
+      properties:
+        mandateStatusCancellationReason:
+          type: string
+          description: The reason that the mandate was cancelled.
+          readOnly: true
+          enum:
+            - INSTRUCTION_CANCELLED
+            - INSTRUCTION_CANCELLED_BY_PAYER
+            - DECEASED
+            - SWITCHED
+            - ACCOUNT_CLOSED
+            - ACCOUNT_TRANSFERRED_TO_NEW_BRANCH
+            - NOTICE_DISPUTED
+            - INSTRUCTION_AMENDED
+      description: A request to cancel a direct debit mandate
+    Balance:
+      type: object
+      properties:
+        currencyAndAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        balanceState:
+          type: string
+          example: IN_CREDIT
+          description: State of the balance on the account, either 'IN_CREDIT' where money
+            is being held at on behalf of the account holder or 'OVERDRAWN' when
+            money is being borrowed
+          readOnly: true
+          enum:
+            - IN_CREDIT
+            - OVERDRAWN
+      description: Account balance and direction
+    PaymentAccount:
+      type: object
+      required:
+        - accountHolder
+      properties:
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company requesting or receiving the payment
+          readOnly: true
+        accountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account which holds funds
+          readOnly: true
+        accountHolder:
+          type: string
+          example: AGENCY
+          description: Type of the account holder, currently only AGENCY is supported
+          readOnly: true
+          enum:
+            - PAYMENT_BUSINESS
+            - AGENCY
+        createdAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Date and time the account was first created
+          readOnly: true
+        description:
+          type: string
+          example: This is our main account
+          description: Description of the account, for reference
+          readOnly: true
+        balance:
+          $ref: "#/components/schemas/Balance"
+    Optional:
+      type: object
+      properties:
+        empty:
+          type: boolean
+        present:
+          type: boolean
+    OptionalDirectDebitMandate:
+      type: object
+      properties:
+        empty:
+          type: boolean
+        present:
+          type: boolean
+    BacsOriginator:
+      type: object
+      properties:
+        originatorUid:
+          type: string
+          format: uuid
+          example: 4f25e862-a5d8-46c5-8fe0-f20ba920adf6
+          description: Starling's unique identifier of the originator
+          readOnly: true
+        serviceUserNumber:
+          type: string
+          example: "987654"
+          description: BACS's unique identifier of the originator
+          readOnly: true
+          minLength: 6
+          maxLength: 6
+        name:
+          type: string
+          example: Southern Electric
+          description: The name of the originator as registered with BACS
+          readOnly: true
+          minLength: 0
+          maxLength: 33
+        sortCode:
+          type: string
+          example: "122234"
+          description: The sort code of the originator as registered with BACS
+          readOnly: true
+          minLength: 6
+          maxLength: 6
+        accountNumber:
+          type: string
+          example: "87882888"
+          description: The account number of the originator as registered with BACS
+          readOnly: true
+          minLength: 8
+          maxLength: 8
+      description: A party that is able to set up direct debit mandates and send and
+        receive payments via BACS
+    DirectDebitMandate:
+      type: object
+      properties:
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company that owns this mandate
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account which will make any payments
+            associated with this mandate
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address the mandate was set up for
+          readOnly: true
+        mandateUid:
+          type: string
+          format: uuid
+          description: Unique identifier of the mandate
+          readOnly: true
+        bacsOriginator:
+          $ref: "#/components/schemas/BacsOriginator"
+        reference:
+          type: string
+          description: The originator defined reference for the mandate
+          readOnly: true
+        status:
+          type: string
+          description: Indication of whether payments can be claimed as part of this mandate
+          readOnly: true
+          enum:
+            - ACTIVE
+            - CANCELLED
+            - ERROR
+      description: A mandate that allows a specific originator to claim direct debit
+        payments
+    BusinessInformation:
+      type: object
+      properties:
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e2afe359-e73f-4fe1-858a-089e6811d13c
+          description: Unique identifier of the payment business
+          readOnly: true
+        name:
+          type: string
+          example: Starling Bank
+          description: Organisation name
+          readOnly: true
+        netSenderCap:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+      description: Details of the payment service business accessing the Starling APIs
+    PaymentDetails:
+      type: object
+      properties:
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company requesting or receiving the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account containing the funds sent or
+            received
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address the payment was sent from or
+            received to
+          readOnly: true
+        paymentUid:
+          type: string
+          format: uuid
+          example: a4edcefd-97b5-46fc-9e79-004fe8f171b7
+          description: Unique identifier of the payment
+          readOnly: true
+        sourceAccount:
+          $ref: "#/components/schemas/PaymentDetailsAccount"
+        destinationAccount:
+          $ref: "#/components/schemas/PaymentDetailsAccount"
+        direction:
+          type: string
+          description: The direction of the payment
+          readOnly: true
+          enum:
+            - INBOUND
+            - OUTBOUND
+        settlementAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        instructedAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        reference:
+          type: string
+          example: ABCD123456
+          description: Reference included with the payment
+          readOnly: true
+        additionalRemittanceInformation:
+          type: string
+          example: Up to 140 characters of free text supplied by the originating
+            institution
+          description: Unstructured additional remittance information
+          readOnly: true
+        status:
+          type: string
+          example: ACCEPTED
+          description: Status of the payment request
+          readOnly: true
+          enum:
+            - PENDING
+            - ACCEPTED
+            - REJECTED
+            - REVERSED
+        rejectedReason:
+          $ref: "#/components/schemas/PaymentRejectionReason"
+        requestedAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Date and time that the request for payment was originally received
+          readOnly: true
+        returnDetails:
+          $ref: "#/components/schemas/PaymentReturnDetails"
+        type:
+          type: string
+          example: SIP
+          description: Type of the payment that was sent or received.
+          readOnly: true
+          enum:
+            - SIP
+            - SOP
+            - FDP
+            - SRN
+            - RTN
+            - DCA
+        settlementCycleUid:
+          type: string
+          format: uuid
+          example: bba786ce-3580-4576-9cad-28a6b8f1b228
+          description: Unique identifier of the settlement cycle the payment is allocated to
+          readOnly: true
+        fpsSettlementCycleId:
+          type: string
+          example: CYCLE_001
+          description: Faster payment scheme identifier for the settlement cycle the
+            payment is allocated to
+          readOnly: true
+          enum:
+            - CYCLE_001
+            - CYCLE_002
+            - CYCLE_003
+        fpsSettlementDate:
+          type: string
+          format: date
+          example: 2017-06-05
+          description: Faster payment scheme settlement date
+          readOnly: true
+      description: Details of a single payment that has been sent or received
+    PaymentDetailsAccount:
+      type: object
+      required:
+        - accountName
+      properties:
+        sortCode:
+          type: string
+          example: "040050"
+          description: Sort code for the account. Will only be specified for accounts in
+            the UK.
+          readOnly: true
+          minLength: 6
+          maxLength: 6
+          pattern: \d{6}
+        accountNumber:
+          type: string
+          example: "12345678"
+          description: Account number for the account. This will be the UK account number
+            for UK based accounts, it may also contain foreign account numbers
+            for payments originating overseas such as the USA.
+          readOnly: true
+          minLength: 0
+          maxLength: 34
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{,34}"
+        bic:
+          type: string
+          example: SRLGGB2L
+          description: Business identifier code for the account. This may be present for
+            payments originating overseas.
+          readOnly: true
+          minLength: 8
+          maxLength: 12
+          pattern: "[A-Z0-9]{8,12}"
+        iban:
+          type: string
+          example: GB29NWBK60161331926819
+          description: International bank account number for the account. This may be
+            present for payments originating overseas.
+          readOnly: true
+          minLength: 4
+          maxLength: 34
+          pattern: "[A-Z0-9]{4,34}"
+        accountName:
+          type: string
+          example: Bobby Tables
+          description: Name of the account (not always the account holder)
+          readOnly: true
+          minLength: 0
+          maxLength: 40
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{,40}"
+      description: Details of the account sending or receiving the payment. The fields
+        specified will vary depending on where the account is based but
+        typically will be a pair of either sortCode & accountNumber, bic & iban
+        or bic & accountNumber.
+    PaymentRejectionReason:
+      type: object
+      properties:
+        code:
+          type: string
+          example: "1234"
+          description: Unique identifier of the reason for rejection
+          readOnly: true
+        description:
+          type: string
+          example: Beneficiary Sort Code/Account Number unknown
+          description: Human-readable description of the rejection reason
+          readOnly: true
+      description: Reason the payment was rejected, only present when the status is
+        'REJECTED'
+    PaymentReturnDetails:
+      type: object
+      properties:
+        paymentBeingReturned:
+          type: string
+          format: uuid
+          example: 954cbfb3-0de0-4f62-8043-00c5ccee0f12
+          description: UUID of the payment being returned if known
+          readOnly: true
+        code:
+          type: string
+          example: "1234"
+          description: Unique identifier of the reason for return
+          readOnly: true
+          minLength: 0
+          maxLength: 8
+        description:
+          type: string
+          example: Beneficiary Sort Code/Account Number unknown
+          description: Human-readable description of the return reason
+          readOnly: true
+          minLength: 0
+          maxLength: 255
+    PaymentOriginatingOverseasInstructionResponse:
+      type: object
+      properties:
+        paymentUid:
+          type: string
+          format: uuid
+          example: d8770f9d-4ee9-4cc1-86e1-83c26bcfcc4f
+          description: Unique identifier of the instructed payment
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the method completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: >-
+            List of errors if the method request failed. Possible values include
+             * UNKNOWN_ADDRESS - The address uid is not valid for the business / account combination
+             * DESTINATION_SORT_CODE_NOT_FPS_ADDRESSABLE - The sort code that is trying to be paid is not a participant in the faster payment scheme
+             * ACCOUNT_NUMBER_INVALID - The account number provided does not match the modulus check rules published for the sort code
+             * CURRENCY_NOT_SUPPORTED - The payment currency requested is not supported
+             * AMOUNT_EXCEEDS_ACCOUNT_LIMIT - The payment amount exceeds the maximum payment amount permitted on this account
+             * ACCOUNT_OVERDRAWN - The account is overdrawn so sufficient funds are not available
+             * INSUFFICIENT_FUNDS - The payment amount exceeds the balance available in the account
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+    DomesticInstructionAccount:
+      type: object
+      required:
+        - accountName
+        - accountNumber
+        - sortCode
+      properties:
+        sortCode:
+          type: string
+          example: "040050"
+          readOnly: true
+          minLength: 6
+          maxLength: 6
+          pattern: \d{6}
+        accountNumber:
+          type: string
+          example: "12345678"
+          readOnly: true
+          minLength: 8
+          maxLength: 8
+          pattern: \d{8}
+        accountName:
+          type: string
+          example: Bobby Tables
+          readOnly: true
+          minLength: 0
+          maxLength: 40
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,40}"
+    OverseasInstructionAccount:
+      type: object
+      required:
+        - accountAddress
+        - accountDetails
+      properties:
+        accountDetails:
+          $ref: "#/components/schemas/OverseasInstructionAccountDetails"
+        accountIndividual:
+          $ref: "#/components/schemas/OverseasInstructionAccountIndividual"
+        accountBusiness:
+          $ref: "#/components/schemas/OverseasInstructionAccountBusiness"
+        accountAddress:
+          $ref: "#/components/schemas/OverseasInstructionAccountAddress"
+    OverseasInstructionAccountAddress:
+      type: object
+      required:
+        - countryCode
+        - lineOne
+      properties:
+        countryCode:
+          type: string
+          example: GB
+          description: ISO 3166-1 alpha-2 character country code
+          readOnly: true
+        lineOne:
+          type: string
+          readOnly: true
+          minLength: 0
+          maxLength: 35
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,35}"
+        lineTwo:
+          type: string
+          readOnly: true
+          minLength: 0
+          maxLength: 35
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,35}"
+        lineThree:
+          type: string
+          readOnly: true
+          minLength: 0
+          maxLength: 35
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,35}"
+        lineFour:
+          type: string
+          readOnly: true
+          minLength: 0
+          maxLength: 35
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,35}"
+    OverseasInstructionAccountBusiness:
+      type: object
+      required:
+        - businessName
+      properties:
+        businessName:
+          type: string
+          example: ABC Ltd
+          description: Name of originating account holder business
+          readOnly: true
+          minLength: 0
+          maxLength: 40
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,40}"
+    OverseasInstructionAccountDetails:
+      type: object
+      required:
+        - bic
+      properties:
+        bic:
+          type: string
+          example: SRLGGB2L
+          description: ISO 9362 BIC code
+          readOnly: true
+          minLength: 8
+          maxLength: 11
+          pattern: ^[0-9A-Z]{8}$|^[0-9A-Z]{11}
+        accountNumber:
+          type: string
+          example: "12345678"
+          description: Account number, if any. Either this or iban is required.
+          readOnly: true
+          minLength: 0
+          maxLength: 34
+          pattern: \w{1,34}
+        iban:
+          type: string
+          example: DE89370400440532013000
+          description: Account IBAN, if any. Either this or iban is required.
+          readOnly: true
+          minLength: 0
+          maxLength: 34
+          pattern: \w{1,34}
+    OverseasInstructionAccountIndividual:
+      type: object
+      required:
+        - dateOfBirth
+        - firstName
+        - lastName
+      properties:
+        firstName:
+          type: string
+          example: Bobby
+          description: First name of originating account holder
+          readOnly: true
+          minLength: 0
+          maxLength: 40
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,40}"
+        middleName:
+          type: string
+          example: Bobity
+          description: Middle name of originating account holder
+          readOnly: true
+          minLength: 0
+          maxLength: 40
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,40}"
+        lastName:
+          type: string
+          example: Tables
+          description: Last name of originating account holder
+          readOnly: true
+          minLength: 0
+          maxLength: 40
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,40}"
+        dateOfBirth:
+          type: string
+          format: date
+          example: 1985-01-27
+          description: Date of birth of originating account holder
+          readOnly: true
+    PaymentOriginatingOverseasInstructionRequest:
+      type: object
+      required:
+        - amountInDestinationCurrency
+        - amountInOriginalCurrency
+        - destinationAccount
+        - exchangeRate
+        - overseasInstructingAccount
+        - reference
+      properties:
+        destinationAccount:
+          $ref: "#/components/schemas/DomesticInstructionAccount"
+        overseasInstructingAccount:
+          $ref: "#/components/schemas/OverseasInstructionAccount"
+        reference:
+          type: string
+          example: paymentReference
+          description: The reference to be sent on the payment
+          readOnly: true
+          minLength: 1
+          maxLength: 18
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,18}"
+        additionalRemittanceInformation:
+          type: string
+          example: Up to 140 characters of free text
+          description: Unstructured additional remittance information
+          readOnly: true
+          minLength: 0
+          maxLength: 140
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,140}"
+        amountInDestinationCurrency:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        amountInOriginalCurrency:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        exchangeRate:
+          type: number
+          example: 0.76
+          description: The exchange rate used to convert the original amount to the
+            destination amount
+          readOnly: true
+    CreatePaymentAccountAddressResponse:
+      type: object
+      properties:
+        addressUid:
+          type: string
+          format: uuid
+          example: b185dec8-43c1-4db1-a590-e50d2ca3779f
+          description: Unique identifier of the payment account address
+          readOnly: true
+        accountNumber:
+          type: string
+          example: "11223344"
+          description: UK account number allocated to the address
+          readOnly: true
+        sortCode:
+          type: string
+          example: "608371"
+          description: UK sort code allocated to the address
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the method completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+      description: Response to a request for a new payment account address
+    CreatePaymentAccountAddressRequest:
+      type: object
+      required:
+        - accountName
+        - sortCode
+      properties:
+        accountName:
+          type: string
+          example: Bobby Tables
+          description: Name of the account holder, this will be included in outbound
+            payment instructions
+          readOnly: true
+          minLength: 1
+          maxLength: 40
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,40}"
+        sortCode:
+          type: string
+          example: "608371"
+          description: UK sort code for sending and receiving payments, must be within the
+            set of sort codes allocated to the payment business
+          readOnly: true
+          minLength: 6
+          maxLength: 6
+          pattern: \d{6}
+        accountNumber:
+          type: string
+          example: "12345678"
+          description: UK account number for sending and receiving payments. Typically
+            account number assignment is managed by Starling and this value must
+            be blank. For some sort codes, account number assignment is managed
+            by the client and the account number must be specified, valid within
+            any modulus checks active on the sort code and have never previously
+            been used for the sort code.
+          readOnly: true
+          minLength: 8
+          maxLength: 8
+          pattern: \d{8}
+      description: Request for a new address for a payment account
+    AddressBacsStatus:
+      type: object
+      properties:
+        directCreditPaymentsStatus:
+          type: string
+          example: ENABLED
+          description: Indicates if the account has been allowed by the account owner to
+            receive direct credit payments, if disabled then all direct credit
+            payments to this account will be rejected
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+        directDebitPaymentsStatus:
+          type: string
+          example: ENABLED
+          description: Indicates if the account has been allowed by the account owner to
+            make direct debit payments, if disabled then all attempts to collect
+            direct debit payments and mandates from this account will be
+            rejected
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+      description: Details of the bacs status for an account address
+    AddressFasterPaymentsStatus:
+      type: object
+      properties:
+        inboundStatus:
+          type: string
+          example: ENABLED
+          description: Inbound faster payments status of the address which controls
+            responses to the scheme on receipt of payment instructions for
+            ACTIVE addresses
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+        outboundStatus:
+          type: string
+          example: ENABLED
+          description: Outbound faster payments status of the address which controls
+            whether outbound payment instructions will be accepted for ACTIVE
+            addresses
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+      description: Details of the faster payments status for an account address
+    PaymentAccountAddress:
+      type: object
+      properties:
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company requesting or receiving the payment
+          readOnly: true
+        accountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account which holds funds
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: 9e544a3b-83a8-42b9-9d1b-af1437b7c377
+          description: Unique identifier of the payment account address
+          readOnly: true
+        sortCode:
+          type: string
+          example: "040030"
+          description: Sort code for the account, used to receive payments into the account
+          readOnly: true
+        accountNumber:
+          type: string
+          example: "11223344"
+          description: Account number, used to receive payments into the account
+          readOnly: true
+        createdAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Date and time the account was first created
+          readOnly: true
+        accountName:
+          type: string
+          example: Starling Bank Limited
+          description: Name for the account, this will be included in outbound faster
+            payment messages to other recipients
+          readOnly: true
+        status:
+          type: string
+          example: ACTIVE
+          description: Overall status of the address.
+          readOnly: true
+          enum:
+            - ACTIVE
+            - INSTRUCT_ONLY
+            - CLOSED
+            - DECEASED
+        fasterPaymentsStatus:
+          $ref: "#/components/schemas/AddressFasterPaymentsStatus"
+        bacsStatus:
+          $ref: "#/components/schemas/AddressBacsStatus"
+      description: Unique address of a payment account, this is UK account number and sort
+        code from which payments can be sent and received
+    DomesticPaymentInstructionResponse:
+      type: object
+      properties:
+        paymentUid:
+          type: string
+          format: uuid
+          example: d8770f9d-4ee9-4cc1-86e1-83c26bcfcc4f
+          description: Unique identifier of the instructed payment
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the method completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: >-
+            List of errors if the method request failed. Possible values include
+             * UNKNOWN_ADDRESS - The address uid is not valid for the business / account combination
+             * DESTINATION_SORT_CODE_NOT_FPS_ADDRESSABLE - The sort code that is trying to be paid is not a participant in the faster payment scheme
+             * ACCOUNT_NUMBER_INVALID - The account number provided does not match the modulus check rules published for the sort code
+             * CURRENCY_NOT_SUPPORTED - The payment currency requested is not supported
+             * AMOUNT_EXCEEDS_ACCOUNT_LIMIT - The payment amount exceeds the maximum payment amount permitted on this account
+             * ACCOUNT_OVERDRAWN - The account is overdrawn so sufficient funds are not available
+             * INSUFFICIENT_FUNDS - The payment amount exceeds the balance available in the account
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+    DomesticPaymentInstructionRequest:
+      type: object
+      required:
+        - currencyAndAmount
+        - domesticInstructionAccount
+        - reference
+      properties:
+        domesticInstructionAccount:
+          $ref: "#/components/schemas/DomesticInstructionAccount"
+        reference:
+          type: string
+          example: paymentReference
+          description: The reference to be sent on the payment
+          readOnly: true
+          minLength: 1
+          maxLength: 18
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{1,18}"
+        additionalRemittanceInformation:
+          type: string
+          example: Up to 140 characters of free text
+          description: Unstructured additional remittance information
+          readOnly: true
+          minLength: 0
+          maxLength: 140
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,140}"
+        currencyAndAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        type:
+          type: string
+          example: SIP
+          description: "Type of payment instruction to send. Permitted values: SIP:
+            Standard immediate, use this if you want quick feedback (default).
+            FDP: Future dated, use this if for low priority feedback and
+            delivery. SOP: Standing order, implies the payment it was
+            pre-scheduled, effectively just the same as FDP. Any payment sent
+            after 4am will be automatically sent as a SIP due to scheme rules."
+          readOnly: true
+          enum:
+            - SIP
+            - SOP
+            - FDP
+    ChangeStatusPaymentAccountAddressResponse:
+      type: object
+      properties:
+        addressUid:
+          type: string
+          format: uuid
+          example: b185dec8-43c1-4db1-a590-e50d2ca3779f
+          description: Unique identifier of the payment account address
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the request completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+      description: Response to a request to change the status of a payment account address
+    ChangeStatusPaymentAccountAddressRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          description: New status for the account address
+          readOnly: true
+          enum:
+            - ACTIVE
+            - INSTRUCT_ONLY
+            - CLOSED
+            - DECEASED
+      description: Request to change the address status
+    ChangeFasterPaymentsStatusPaymentAccountAddressResponse:
+      type: object
+      properties:
+        addressUid:
+          type: string
+          format: uuid
+          example: b185dec8-43c1-4db1-a590-e50d2ca3779f
+          description: Unique identifier of the payment account address
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the request completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+      description: Response to a request to change the faster payments status of a payment
+        account address
+    ChangeFasterPaymentsStatusPaymentAccountAddressRequest:
+      type: object
+      required:
+        - inboundStatus
+        - outboundStatus
+      properties:
+        inboundStatus:
+          type: string
+          description: New status for inbound faster payments
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+        outboundStatus:
+          type: string
+          description: New status for outbound faster payments
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+      description: "Request to change the address faster payments status "
+    ChangeBacsStatusPaymentAccountAddressResponse:
+      type: object
+      properties:
+        addressUid:
+          type: string
+          format: uuid
+          example: b185dec8-43c1-4db1-a590-e50d2ca3779f
+          description: Unique identifier of the payment account address
+          readOnly: true
+        success:
+          type: boolean
+          example: true
+          description: True if the request completed successfully
+          readOnly: true
+        errors:
+          type: array
+          description: List of errors if the method request failed
+          readOnly: true
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+      description: Response to a request to change the bacs status of a payment account
+        address
+    ChangeBacsStatusPaymentAccountAddressRequest:
+      type: object
+      required:
+        - directCreditPaymentsStatus
+        - directDebitPaymentsStatus
+      properties:
+        directCreditPaymentsStatus:
+          type: string
+          example: ENABLED
+          description: Indicates if the account has been allowed by the account owner to
+            receive direct credit payments, if disabled then all direct credit
+            payments to this account will be rejected
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+        directDebitPaymentsStatus:
+          type: string
+          example: ENABLED
+          description: Indicates if the account has been allowed by the account owner to
+            make direct debit payments, if disabled then all attempts to collect
+            direct debit payments and mandates from this account will be
+            rejected
+          readOnly: true
+          enum:
+            - ENABLED
+            - DISABLED
+      description: "Request to change the address bacs status "
+    DirectDebitPaymentDueNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company making the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account from which the funds will be taken
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address the payment will be taken from
+          readOnly: true
+        bacsPaymentUid:
+          type: string
+          format: uuid
+          example: a910a7a8-2e10-494d-9ef1-7610ffc1e13b
+          description: Unique identifier of the direct debit payment
+          readOnly: true
+        mandateUid:
+          type: string
+          format: uuid
+          example: 8c5aa657-d335-47c1-91dc-7b6dc1f2dab7
+          description: Unique identifier of the mandate under which the payment will be
+            taken
+          readOnly: true
+        bacsOriginator:
+          $ref: "#/components/schemas/BacsOriginator"
+        reference:
+          type: string
+          example: REF12345
+          description: The originator defined reference for the payment
+          readOnly: true
+          minLength: 6
+          maxLength: 18
+        amount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        paymentDueAt:
+          type: string
+          format: date
+          example: 2017-06-05
+          description: Date that the payment will be debited from the account
+          readOnly: true
+      description: Notification that a direct debit payment will be made on the next
+        working day
+    FpsSchemeNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: fc075558-9511-4e77-a196-99a8107af2b4
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentUid:
+          type: string
+          format: uuid
+          example: 32e2f3f9-dee4-4d10-a470-3dfa01dbf118
+          description: Unique identifier of the payment the notification relates to
+          readOnly: true
+        paymentState:
+          type: string
+          example: ACCEPTED
+          description: Current state of the payment in the FPS scheme
+          readOnly: true
+          enum:
+            - ACCEPTED
+            - RETRIED_AS_FDP
+            - REJECTED
+        reasonCode:
+          type: string
+          example: "0000"
+          description: FPS scheme reason code for the notification / state change
+          readOnly: true
+          minLength: 0
+          maxLength: 8
+        reasonDescription:
+          type: string
+          example: Accept
+          description: Human readable description of the reasonCode
+          readOnly: true
+          minLength: 0
+          maxLength: 255
+        fpid:
+          type: string
+          example: "YE78126Q54WK2J06M33020170720826608371     "
+          description: Unique identifier of the payment within the scheme. 42 character
+            string, in which the last five characters are almost always spaces.
+          readOnly: true
+          minLength: 0
+          maxLength: 42
+        settlementCycleUid:
+          type: string
+          format: uuid
+          example: fd1a027c-9c9f-4730-8df2-7fb2b44995e3
+          description: Unique identifier of the settlement cycle the payment has been
+            assigned to (where known)
+          readOnly: true
+        settlementCycle:
+          type: string
+          example: CYCLE_001
+          description: Settlement cycle of the payment (where known)
+          readOnly: true
+          enum:
+            - CYCLE_001
+            - CYCLE_002
+            - CYCLE_003
+            - CYCLE_UNKNOWN
+        settlementDate:
+          type: string
+          format: date
+          example: 2017-07-01
+          description: Settlement date of the payment (where known)
+          readOnly: true
+        timestamp:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Timestamp of the notification from the scheme
+          readOnly: true
+      description: Web hook payload for a notification received from the faster payment
+        scheme
+    MandateCreatedNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company for whom the mandate has been
+            created
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account for which payments for the mandate
+            will be taken
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address that the mandate was addressed to
+          readOnly: true
+        mandateUid:
+          type: string
+          format: uuid
+          example: 8c5aa657-d335-47c1-91dc-7b6dc1f2dab7
+          description: Unique identifier of the mandate that has been created
+          readOnly: true
+        bacsOriginator:
+          $ref: "#/components/schemas/BacsOriginator"
+        reference:
+          type: string
+          example: REF12345
+          description: The originator defined reference for the mandate
+          readOnly: true
+          minLength: 6
+          maxLength: 18
+        receivedAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Time at which the mandate was registered with Starling
+          readOnly: true
+      description: Notification that a direct debit mandate has been created for the account
+    MandateCancelledNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company for whom the mandate has been
+            cancelled
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account for which payments for the mandate
+            were taken
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address that the mandate was addressed to
+          readOnly: true
+        mandateUid:
+          type: string
+          format: uuid
+          example: 8c5aa657-d335-47c1-91dc-7b6dc1f2dab7
+          description: Unique identifier of the mandate that has been cancelled
+          readOnly: true
+        bacsOriginator:
+          $ref: "#/components/schemas/BacsOriginator"
+        reference:
+          type: string
+          example: REF12345
+          description: The originator defined reference for the mandate
+          readOnly: true
+          minLength: 6
+          maxLength: 18
+        cancelledAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Time at which the mandate was cancelled
+          readOnly: true
+      description: Notification that a direct debit mandate has been cancelled for the
+        account
+    DirectCreditPaymentReceivedNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company receiving the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account containing the funds received
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address the payment was received to
+          readOnly: true
+        bacsPaymentUid:
+          type: string
+          format: uuid
+          example: a910a7a8-2e10-494d-9ef1-7610ffc1e13b
+          description: Unique identifier of the direct credit payment
+          readOnly: true
+        bacsOriginator:
+          $ref: "#/components/schemas/BacsOriginator"
+        reference:
+          type: string
+          example: REF12345
+          description: The originator defined reference for the payment
+          readOnly: true
+          minLength: 0
+          maxLength: 18
+        amount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        receivedAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Time at which the payment was credited to the account
+          readOnly: true
+      description: Notification that a direct credit has been received
+    DirectDebitPaymentPaidNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company making the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account from which the funds were taken
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address the payment was taken from
+          readOnly: true
+        bacsPaymentUid:
+          type: string
+          format: uuid
+          example: a910a7a8-2e10-494d-9ef1-7610ffc1e13b
+          description: Unique identifier of the direct debit payment
+          readOnly: true
+        mandateUid:
+          type: string
+          format: uuid
+          example: 8c5aa657-d335-47c1-91dc-7b6dc1f2dab7
+          description: Unique identifier of the mandate under which the payment was taken
+          readOnly: true
+        bacsOriginator:
+          $ref: "#/components/schemas/BacsOriginator"
+        reference:
+          type: string
+          example: REF12345
+          description: The originator defined reference for the payment
+          readOnly: true
+          minLength: 6
+          maxLength: 18
+        amount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        receivedAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Time at which the payment was debited from the account
+          readOnly: true
+      description: Notification that a direct debit payment has been successfully made
+    DirectDebitPaymentRejectedNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company that attempted to make the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account from which the attempt to take the
+            funds was made
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address from which the attempt to make the
+            payment was made
+          readOnly: true
+        bacsPaymentUid:
+          type: string
+          format: uuid
+          example: a910a7a8-2e10-494d-9ef1-7610ffc1e13b
+          description: Unique identifier of the direct debit payment
+          readOnly: true
+        mandateUid:
+          type: string
+          format: uuid
+          example: 8c5aa657-d335-47c1-91dc-7b6dc1f2dab7
+          description: Unique identifier of the mandate under which it was intended that
+            the payment was taken
+          readOnly: true
+        bacsOriginator:
+          $ref: "#/components/schemas/BacsOriginator"
+        reference:
+          type: string
+          example: REF12345
+          description: The originator defined reference for the payment
+          readOnly: true
+          minLength: 6
+          maxLength: 18
+        amount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        rejectionReason:
+          type: string
+          description: Reason for rejection of payment; ACCOUNT_INSUFFICIENT_FUNDS means
+            the account owning the address had insufficient funds to make the
+            payment; INSTRUCTED_INSUFFICIENT_FUNDS means that payment was
+            instructed to not be paid due to insufficient customer funds
+          readOnly: true
+          enum:
+            - ACCOUNT_INSUFFICIENT_FUNDS
+            - INSTRUCTED_INSUFFICIENT_FUNDS
+        cancelledAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Time at which Starling stopped attempting to take the payment from
+            the account
+          readOnly: true
+      description: Notification that a direct debit payment has been rejected due to lack
+        of funds
+    PaymentOriginatingOverseasSanctionFailedNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentUid:
+          type: string
+          format: uuid
+          example: a4edcefd-97b5-46fc-9e79-004fe8f171b7
+          description: Unique identifier of the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the payment account
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the payment business
+          readOnly: true
+      description: Notification for a payment originating overseas which has failed
+        sanction checks.
+    FpsInboundNotification:
+      type: object
+      properties:
+        fpid:
+          type: string
+          example: "YE78126Q54WK2J06M33020170720826608371     "
+          description: Unique identifier of the payment within the scheme. 42 character
+            string, in which the last five characters are almost always spaces.
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company receiving the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account containing the funds received
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: c0cee51b-700b-481d-8ac5-e2cd75929ef1
+          description: Unique identifier of the address the payment was received to
+          readOnly: true
+        paymentUid:
+          type: string
+          format: uuid
+          example: a4edcefd-97b5-46fc-9e79-004fe8f171b7
+          description: Unique identifier of the payment
+          readOnly: true
+        sourceAccount:
+          $ref: "#/components/schemas/PaymentDetailsAccount"
+        destinationAccount:
+          $ref: "#/components/schemas/PaymentDetailsAccount"
+        settlementAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        instructedAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        reference:
+          type: string
+          example: ABCD123456
+          description: Reference included with the payment
+          readOnly: true
+          minLength: 0
+          maxLength: 18
+        additionalRemittanceInformation:
+          type: string
+          example: Up to 140 characters of free text
+          description: Unstructured additional remittance information
+          readOnly: true
+          minLength: 0
+          maxLength: 140
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,140}"
+        receivedAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Date and time that the payment was originally received
+          readOnly: true
+        returnDetails:
+          $ref: "#/components/schemas/PaymentReturnDetails"
+        deadlineForReturn:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: "Date and time until when the payment can be returned. Not present
+            if the return deadline could not be calculated. Specification: FPS
+            Procedures Chapter 3 - Faster Payments Service Operation v15.1.pdf "
+          readOnly: true
+        type:
+          type: string
+          example: SIP
+          description: Type of the payment that was sent or received
+          readOnly: true
+          enum:
+            - SIP
+            - SOP
+            - FDP
+            - SRN
+            - RTN
+            - DCA
+        settlementCycleUid:
+          type: string
+          format: uuid
+          example: bba786ce-3580-4576-9cad-28a6b8f1b228
+          description: Unique identifier of the settlement cycle the payment is allocated to
+          readOnly: true
+        fpsSettlementCycleId:
+          type: string
+          example: CYCLE_001
+          description: Faster payment scheme identifier for the settlement cycle the
+            payment is allocated to
+          readOnly: true
+          enum:
+            - CYCLE_001
+            - CYCLE_002
+            - CYCLE_003
+        fpsSettlementDate:
+          type: string
+          format: date
+          example: 2017-06-05
+          description: Faster payment scheme settlement date
+          readOnly: true
+      description: Notification of a newly received inbound payment
+    PaymentOriginatingOverseasInboundReturnNotification:
+      type: object
+      properties:
+        fpid:
+          type: string
+          example: "YE78126Q54WK2J06M33020170720826608371     "
+          description: Unique identifier of the payment within the scheme. 42 character
+            string, in which the last five characters are almost always spaces.
+          readOnly: true
+        paymentBusinessUid:
+          type: string
+          format: uuid
+          example: e43d3060-2c83-4bb9-ac8c-c627b9c45f8b
+          description: Unique identifier of the company receiving the payment
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 5347699b-d205-4272-aac6-ee9d7f2dddcf
+          description: Unique identifier of the account containing the funds received
+          readOnly: true
+        paymentUid:
+          type: string
+          format: uuid
+          example: a4edcefd-97b5-46fc-9e79-004fe8f171b7
+          description: Unique identifier of the payment
+          readOnly: true
+        sourceAccount:
+          $ref: "#/components/schemas/PaymentDetailsAccount"
+        settlementAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        instructedAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        reference:
+          type: string
+          example: ABCD123456
+          description: Reference included with the payment
+          readOnly: true
+          minLength: 0
+          maxLength: 18
+        additionalRemittanceInformation:
+          type: string
+          example: Up to 140 characters of free text
+          description: Unstructured additional remittance information
+          readOnly: true
+          minLength: 0
+          maxLength: 140
+          pattern: "[a-zA-Z0-9-/?:().,+#=!%&*<>;{@ \"']{0,140}"
+        receivedAt:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Date and time that the payment was originally received
+          readOnly: true
+        returnDetails:
+          $ref: "#/components/schemas/PaymentReturnDetails"
+        type:
+          type: string
+          example: SIP
+          description: Type of the payment that was sent or received
+          readOnly: true
+          enum:
+            - SIP
+            - SOP
+            - FDP
+            - SRN
+            - RTN
+            - DCA
+        settlementCycleUid:
+          type: string
+          format: uuid
+          example: bba786ce-3580-4576-9cad-28a6b8f1b228
+          description: Unique identifier of the settlement cycle the payment is allocated to
+          readOnly: true
+        fpsSettlementCycleId:
+          type: string
+          example: CYCLE_001
+          description: Faster payment scheme identifier for the settlement cycle the
+            payment is allocated to
+          readOnly: true
+          enum:
+            - CYCLE_001
+            - CYCLE_002
+            - CYCLE_003
+        fpsSettlementDate:
+          type: string
+          format: date
+          example: 2017-06-05
+          description: Faster payment scheme settlement date
+          readOnly: true
+      description: Notification of a newly received inbound return of a payment originating
+        overseas
+    FpsReversalNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentUid:
+          type: string
+          format: uuid
+          example: ef9ed815-1ee8-43e5-83ba-a7ebaf7c268e
+          description: Unique identifier of the payment being reversed by the scheme
+          readOnly: true
+        addressUid:
+          type: string
+          format: uuid
+          example: b9d698e0-5fab-476a-9455-97eed81ce600
+          description: Unique identifier of the address the payment was received to
+          readOnly: true
+        paymentAccountUid:
+          type: string
+          format: uuid
+          example: 67be3551-a586-4764-bd0d-2cee7b744ec6
+          description: Unique identifier of the account the funds were applied to
+          readOnly: true
+        reversalAmount:
+          $ref: "#/components/schemas/CurrencyAndAmount"
+        reasonCode:
+          type: string
+          example: "9912"
+          description: FPS scheme reason code for the payment reversal
+          readOnly: true
+          minLength: 0
+          maxLength: 8
+        reasonDescription:
+          type: string
+          example: Direct Receiver’s system not available
+          description: Human readable description of the reasonCode
+          readOnly: true
+          minLength: 0
+          maxLength: 255
+        timestamp:
+          type: string
+          format: date-time
+          example: 2017-06-05T11:47:58.801Z
+          description: Timestamp of the notification from the scheme
+          readOnly: true
+      description: Notification of a reversal by the scheme of a previously received
+        inbound payment
+    AccountNumberAndSortCode:
+      type: object
+      properties:
+        accountNumber:
+          type: string
+          example: "11223344"
+          description: Account number
+          readOnly: true
+          minLength: 8
+          maxLength: 8
+        sortCode:
+          type: string
+          example: "040050"
+          description: Bank sort code
+          readOnly: true
+          minLength: 6
+          maxLength: 6
+      description: Account number and sort code pair on the FPS scheme
+    FpsRedirectionNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: fc075558-9511-4e77-a196-99a8107af2b4
+          description: Unique identifier of the notification
+          readOnly: true
+        paymentUid:
+          type: string
+          format: uuid
+          example: ef9ed815-1ee8-43e5-83ba-a7ebaf7c268e
+          description: Unique identifier of the payment that was redirected
+          readOnly: true
+        originalAccount:
+          $ref: "#/components/schemas/AccountNumberAndSortCode"
+        redirectedAccount:
+          $ref: "#/components/schemas/AccountNumberAndSortCode"
+      description: Notification for the redirection of a faster payment due to a change in
+        the recipient account details
+    AccountTransactionNotification:
+      type: object
+      properties:
+        notificationUid:
+          type: string
+          format: uuid
+          example: 4bfc8e20-92f1-4d7e-bb98-079ddbb5313c
+          description: Unique identifier of the notification
+          readOnly: true
+        accountTransactionUid:
+          type: string
+          format: uuid
+          example: ef9ed815-1ee8-43e5-83ba-a7ebaf7c268e
+          description: Unique identifier of the account transaction applied
+          readOnly: true
+        paymentAccountUid:
+          type: string

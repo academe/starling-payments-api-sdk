@@ -1,0 +1,29 @@
+{
+    "name": "academe/starling-payments-api-sdk",
+    "description": "An SDK providing operations for the Starling Bank Payments API, using code generated from the OpenAPI 3.0 description",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Jason Judge",
+            "email": "jason.judge@academe.co.uk"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+    },
+    "autoload": {
+        "psr-4": {
+            "Academe\\Starling\\PaymentsSdk\\": "api/src/"
+        }
+    },
+    "repositories" : [
+        {
+            "type": "vcs",
+            "url": "git@github.com:consilience/openapi-generator-psr18.git"
+        }
+    ],
+    "require-dev": {
+        "consilience/openapi-generator-psr18": "dev-master"
+    }
+}
